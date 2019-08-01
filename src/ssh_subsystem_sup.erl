@@ -30,7 +30,8 @@
 
 -export([start_link/5,
 	 connection_supervisor/1,
-	 channel_supervisor/1
+	 channel_supervisor/1,
+         forward_supervisor/1
 	]).
 
 %% Supervisor callback
@@ -50,6 +51,10 @@ channel_supervisor(SupPid) ->
     Children = supervisor:which_children(SupPid),
     ssh_server_channel_sup(Children).
 
+forward_supervisor(SupPid) ->    
+    Children = supervisor:which_children(SupPid),
+    ssh_server_forward_sup(Children).
+
 %%%=========================================================================
 %%%  Supervisor callback
 %%%=========================================================================
@@ -68,7 +73,8 @@ child_specs(client, _Address, _Port, _Profile, _Options) ->
     [];
 child_specs(server, Address, Port, Profile, Options) ->
     [ssh_channel_child_spec(server, Address, Port, Profile, Options), 
-     ssh_connection_child_spec(server, Address, Port, Profile, Options)].
+     ssh_connection_child_spec(server, Address, Port, Profile, Options),
+     ssh_forward_child_spec(server, Address, Port, Profile, Options)].
   
 ssh_connection_child_spec(Role, Address, Port, _Profile, Options) ->
     #{id       => id(Role, ssh_connection_sup, Address, Port),
@@ -80,6 +86,13 @@ ssh_connection_child_spec(Role, Address, Port, _Profile, Options) ->
 ssh_channel_child_spec(Role, Address, Port, _Profile, Options) ->
     #{id       => id(Role, ssh_server_channel_sup, Address, Port),
       start    => {ssh_server_channel_sup, start_link, [Options]},
+      restart  => temporary,
+      type     => supervisor
+     }.
+
+ssh_forward_child_spec(Role, Address, Port, _Profile, Options) ->
+    #{id       => id(Role, ssh_server_forward_sup, Address, Port),
+      start    => {ssh_server_forward_sup, start_link, [Options]},
       restart  => temporary,
       type     => supervisor
      }.
@@ -97,5 +110,7 @@ ssh_server_channel_sup([{_, Child, _, [ssh_server_channel_sup]} | _]) ->
 ssh_server_channel_sup([_ | Rest]) ->
     ssh_server_channel_sup(Rest).
 
-
-
+ssh_server_forward_sup([{_, Child, _, [ssh_server_forward_sup]} | _]) ->
+    Child;
+ssh_server_forward_sup([_ | Rest]) ->
+    ssh_server_forward_sup(Rest).
