@@ -7,7 +7,8 @@ Work in progress.
 Current status:
 
 - [x] remote port forwarding, ssh option `-R`
-- [ ] local port forwarding, ssh option `-L`
+- [x] local port forwarding, server side, ssh option `-L`
+- [ ] local port forwarding, client side, ssh option `-L`
 
 Build
 -----
