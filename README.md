@@ -6,8 +6,8 @@ Work in progress.
 
 Current status:
 
-[x] remote port forwarding, ssh option `-R`
-[ ] local port forwarding
+- [x] remote port forwarding, ssh option `-R`
+- [ ] local port forwarding, ssh option `-L`
 
 Build
 -----
