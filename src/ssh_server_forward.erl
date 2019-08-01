@@ -25,12 +25,21 @@
 -include("ssh.hrl").
 -include("ssh_connect.hrl").
 
+-define(tcp_options,[binary,
+                     {keepalive, true},
+                     {active, false},
+                     {nodelay, true},
+                     {send_timeout, 5000},
+                     {send_timeout_close, true}
+                    ]).
+
 -record(st, { address :: string()
             , port :: non_neg_integer()
             , channel :: ssh:channel_id()
             , cm :: pid()
             , socket :: port() | undefined
             , data :: binary()
+            , init_socket :: reference()
          }
        ).
 
@@ -46,6 +55,21 @@ set_socket(Pid, Sock) ->
 %%
 %% Description: Initiates the CLI
 %%--------------------------------------------------------------------
+
+%% direct-tcpip
+init({ConnManager, Addr, Port, _OrigAddr, _OrigPort, ChannelId}) ->
+    Self = self(),
+    Pid = proc_lib:spawn_opt(fun () -> 
+                                     init_socket(Self, binary_to_list(Addr), Port, ?tcp_options) 
+                             end, []),
+    Ref = monitor(process, Pid),
+    {ok, #st{channel = ChannelId,
+             cm = ConnManager,
+             address = Addr,
+             port = Port,
+             init_socket = Ref
+            }};
+%% forwarded-tcpip
 init({ConnManager, Addr, Port, ChannelId}) ->
     {ok, #st{channel = ChannelId,
              cm = ConnManager,
@@ -86,6 +110,12 @@ handle_ssh_msg({ssh_cm, _, {exit_status, Id, _Status}}, St = #st{ channel = Id})
 %%
 %% Description: Handles other channel messages
 %%--------------------------------------------------------------------
+handle_msg({'DOWN', Ref, process, _Pid, normal}, St = #st{init_socket = Ref}) ->
+    {ok, St#st{init_socket = undefined}};
+handle_msg({'DOWN', Ref, process, _Pid, Error}, St = #st{init_socket = Ref, channel = Id,
+                                                         address = Addr, port = Port}) ->
+    logger:error("failed to open forwarded connection with ~s:~p ~p", [Addr, Port, Error]),
+    {stop, Id, St};
 handle_msg({tcp, Sock, Data}, St = #st{cm = ConnManager, channel = Id, socket = Sock}) ->
     ok = inet:setopts(Sock, [{active, once}]),
     ssh_connection:send(ConnManager, Id, Data),
@@ -106,6 +136,15 @@ terminate(_Reason, #st{socket = Sock}) ->
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
+
+init_socket(Parent, Addr, Port, Opts) ->
+    case gen_tcp:connect(Addr, Port, Opts) of
+        {ok, Sock} ->
+            ok = gen_tcp:controlling_process(Sock, Parent),
+            set_socket(Parent, Sock);
+        {error, Error} ->
+            exit(Error)
+    end.
 
 %%%################################################################
 %%%#

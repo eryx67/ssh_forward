@@ -433,7 +433,41 @@ handle_msg(#ssh_msg_channel_open{channel_type = "session",
                                        "Connection refused", "en"),
     {[{connection_reply, FailMsg}], Connection};
 
-handle_msg(#ssh_msg_channel_open{sender_channel = RemoteId}, Connection, _) ->
+handle_msg(#ssh_msg_channel_open{channel_type = "direct-tcpip",
+                                 sender_channel = RemoteId,
+                                 initial_window_size = WindowSz,
+                                 maximum_packet_size = PacketSz,
+                                 data = Data
+                                },
+           #connection{options = SSHopts} = Connection0,
+           server) ->
+
+    MinAcceptedPackSz = ?GET_OPT(minimal_remote_max_packet_size, SSHopts),
+
+    if  MinAcceptedPackSz > PacketSz ->
+            FailMsg = channel_open_failure_msg(RemoteId,
+                                               ?SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
+                                               lists:concat(["Maximum packet size below ",MinAcceptedPackSz,
+                                                              " not supported"]), "en"),
+            {[{connection_reply, FailMsg}], Connection0};
+        true ->
+            <<?UINT32(HL), _/binary>> = Data,
+            <<?DEC_BIN(Host, HL), ?UINT32(Port), Rst/binary>> = Data,
+            <<?UINT32(OL), _/binary>> = Rst,
+            <<?DEC_BIN(OrigAddr, OL), ?UINT32(OrigPort)>> = Rst,
+
+            try start_direct_forward(Connection0, RemoteId, WindowSz, PacketSz,
+                                     Host, Port, OrigAddr, OrigPort) of
+                Result ->
+                    Result
+            catch _:_ ->
+                    FailMsg = channel_open_failure_msg(RemoteId,
+                                                       ?SSH_OPEN_CONNECT_FAILED,
+                                                       "Connection refused", "en"),
+                    {[{connection_reply, FailMsg}], Connection0}
+            end
+    end;
+handle_msg(#ssh_msg_channel_open{sender_channel = RemoteId}, Connection, server) ->
     FailMsg = channel_open_failure_msg(RemoteId,
                                        ?SSH_OPEN_ADMINISTRATIVELY_PROHIBITED,
                                        "Not allowed", "en"),
@@ -844,6 +878,37 @@ start_forward(Host, Port, #connection{options = Options,
     ForwardSup = ssh_subsystem_sup:forward_supervisor(SubSysSup),
     ChannelSup = ssh_subsystem_sup:channel_supervisor(SubSysSup),
     ssh_server_forward_sup:start_child(ForwardSup, ChannelSup, Host, Port, Options).
+
+start_direct_forward(#connection{channel_cache = Cache,
+                                 channel_id_seed = NewChannelID,
+                                 options = Options,
+                                 sub_system_supervisor = SubSysSup} = Connection,
+                     RemoteId, WindowSize, PacketSize,
+                     Host, Port, OrigAddr, OrigPort) ->
+    NextChannelID = NewChannelID + 1,
+
+
+    Args = {self(), Host, Port, OrigAddr, OrigPort, NewChannelID},
+    {ok, Pid} = start_channel(ssh_server_forward, NewChannelID, Args, SubSysSup, Options),
+    erlang:monitor(process, Pid),
+    Channel =
+        #channel{type = "direct-tcpip",
+                 sys = "none",
+                 user = Pid,
+                 local_id = NewChannelID,
+                 recv_window_size = ?DEFAULT_WINDOW_SIZE,
+                 recv_packet_size = ?DEFAULT_PACKET_SIZE,
+                 send_window_size = WindowSize,
+                 send_packet_size = PacketSize,
+                 send_buf = queue:new(),
+                 remote_id = RemoteId
+                },
+    ssh_client_channel:cache_update(Cache, Channel),
+    OpenConfMsg = channel_open_confirmation_msg(RemoteId, NewChannelID,
+                                                ?DEFAULT_WINDOW_SIZE,
+                                                ?DEFAULT_PACKET_SIZE),
+    Reply = {connection_reply, OpenConfMsg},
+    {[Reply], Connection#connection{channel_id_seed = NextChannelID}}.
 
 %%% Helpers for starting cli/subsystems
 start_channel(Cb, Id, Args, SubSysSup, Opts) ->
