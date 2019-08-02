@@ -15,7 +15,7 @@
 
 -behaviour(gen_server).
 
--export([start_link/6]).
+-export([start_link/8]).
 
 %% gen_server callback
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -38,9 +38,9 @@
             , acceptor :: any()
             , channel_supervisor :: pid()
             , listen_host :: binary()
-            , listen_port :: non_neg_integer()
+            , listen_port ::  ssh:ip_port()
             , forward_host :: binary()
-            , forward_port :: non_neg_integer()
+            , forward_port ::  ssh:ip_port()
             , options :: proplists:proplist()
             , pid2id :: #{pid() := ssh:channel_id()}
             , id2pid :: #{ssh:channel_id() := pid()}
@@ -50,12 +50,10 @@
 %%%=========================================================================
 %%%  Internal API
 %%%=========================================================================
--spec start_link(server, pid(), binary(), ssh:ip_port(), pid(), proplists:proplist()) ->
-                        {ok, pid(), non_neg_integer()}.
-start_link(Role, ConnectionManager, Host, Port, ChannelSup, Options) ->
-    start_link(Role, ConnectionManager, Host, Port, undefined, undefined, ChannelSup, Options).
-
--spec start_link(ssh:role(), pid(), binary(), ssh:ip_port(), binary(), ssh:ip_port(), pid(), proplists:proplist()) ->
+-spec start_link(ssh:role(), pid(),
+                 binary(), ssh:ip_port(),
+                 binary() | undefined, ssh:ip_port() | undefined,
+                 pid(), proplists:proplist()) ->
                         {ok, pid(), non_neg_integer()}.
 start_link(Role, ConnectionManager, LsnHost, LsnPort, FwdHost, FwdPort, ChannelSup, Options) ->
     proc_lib:start_link(?MODULE, init, [{Role, ConnectionManager,

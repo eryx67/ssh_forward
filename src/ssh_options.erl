@@ -416,6 +416,12 @@ default(server) ->
 default(client) ->
     (default(common))
         #{
+      {max_channels, def} =>
+          #{default => infinity,
+            chk => fun check_pos_integer/1,
+            class => user_options
+           },
+
       {dsa_pass_phrase, def} =>
           #{default => undefined,
             chk => fun check_string/1,

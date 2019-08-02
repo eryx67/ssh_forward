@@ -29,17 +29,18 @@
 -include_lib("kernel/include/inet.hrl").
 
 -export([start/0, start/1, stop/0,
-	 connect/2, connect/3, connect/4,
-	 close/1, connection_info/2,
-	 channel_info/3,
-	 daemon/1, daemon/2, daemon/3,
-	 daemon_info/1,
-	 default_algorithms/0,
+         connect/2, connect/3, connect/4,
+         direct_tcpip/5,
+         close/1, connection_info/2,
+         channel_info/3,
+         daemon/1, daemon/2, daemon/3,
+         daemon_info/1,
+         default_algorithms/0,
          chk_algos_opts/1,
-	 stop_listener/1, stop_listener/2,  stop_listener/3,
-	 stop_daemon/1, stop_daemon/2, stop_daemon/3,
-	 shell/1, shell/2, shell/3
-	]).
+         stop_listener/1, stop_listener/2,  stop_listener/3,
+         stop_daemon/1, stop_daemon/2, stop_daemon/3,
+         shell/1, shell/2, shell/3
+        ]).
 
 %%% "Deprecated" types export:
 -export_type([ssh_daemon_ref/0, ssh_connection_ref/0, ssh_channel_id/0]).
@@ -51,7 +52,7 @@
 %%% Type exports
 -export_type([daemon_ref/0,
               connection_ref/0,
-	      channel_id/0,
+              channel_id/0,
               client_options/0, client_option/0,
               daemon_options/0, daemon_option/0,
               common_options/0,
@@ -67,7 +68,7 @@
               mac_alg/0,
               compression_alg/0,
               ip_port/0
-	     ]).
+             ]).
 
 
 -opaque daemon_ref()         :: pid() .
@@ -122,17 +123,17 @@ connect(OpenTcpSocket, Options) when is_port(OpenTcpSocket),
 connect(Socket, UserOptions, NegotiationTimeout) when is_port(Socket),
                                                       is_list(UserOptions) ->
     case ssh_options:handle_options(client, UserOptions) of
-	{error, Error} ->
-	    {error, Error};
-	Options ->
+        {error, Error} ->
+            {error, Error};
+        Options ->
             case valid_socket_to_use(Socket, ?GET_OPT(transport,Options)) of
-		ok ->
-		    {ok, {Host,_Port}} = inet:sockname(Socket),
-		    Opts = ?PUT_INTERNAL_OPT([{user_pid,self()}, {host,Host}], Options),
-		    ssh_connection_handler:start_connection(client, Socket, Opts, NegotiationTimeout);
-		{error,SockError} ->
-		    {error,SockError}
-	    end
+                ok ->
+                    {ok, {Host, _Port}} = inet:sockname(Socket),
+                    Opts = ?PUT_INTERNAL_OPT([{user_pid,self()}, {host,Host}], Options),
+                    ssh_connection_handler:start_connection(client, Socket, Opts, NegotiationTimeout);
+                {error,SockError} ->
+                    {error,SockError}
+            end
     end;
 
 connect(Host, Port, Options) when is_integer(Port),
@@ -151,25 +152,25 @@ connect(Host0, Port, UserOptions, Timeout) when is_integer(Port),
                                                Port>0,
                                                is_list(UserOptions) ->
     case ssh_options:handle_options(client, UserOptions) of
-	{error, _Reason} = Error ->
-	    Error;
+        {error, _Reason} = Error ->
+            Error;
         Options ->
-	    {_, Transport, _} = TransportOpts = ?GET_OPT(transport, Options),
-	    ConnectionTimeout = ?GET_OPT(connect_timeout, Options),
+            {_, Transport, _} = TransportOpts = ?GET_OPT(transport, Options),
+            ConnectionTimeout = ?GET_OPT(connect_timeout, Options),
             SocketOpts = [{active,false} | ?GET_OPT(socket_options,Options)],
             Host = mangle_connect_address(Host0, SocketOpts),
-	    try Transport:connect(Host, Port, SocketOpts, ConnectionTimeout) of
-		{ok, Socket} ->
-		    Opts = ?PUT_INTERNAL_OPT([{user_pid,self()}, {host,Host}], Options),
-		    ssh_connection_handler:start_connection(client, Socket, Opts, Timeout);
-		{error, Reason} ->
-		    {error, Reason}
-	    catch
-		exit:{function_clause, _F} ->
-		    {error, {options, {transport, TransportOpts}}};
-		exit:badarg ->
-		    {error, {options, {socket_options, SocketOpts}}}
-	    end
+            try Transport:connect(Host, Port, SocketOpts, ConnectionTimeout) of
+                {ok, Socket} ->
+                    Opts = ?PUT_INTERNAL_OPT([{user_pid,self()}, {host,Host}], Options),
+                    ssh_connection_handler:start_connection(client, Socket, Opts, Timeout);
+                {error, Reason} ->
+                    {error, Reason}
+            catch
+                exit:{function_clause, _F} ->
+                    {error, {options, {transport, TransportOpts}}};
+                exit:badarg ->
+                    {error, {options, {socket_options, SocketOpts}}}
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -328,22 +329,22 @@ daemon(_, _, _) ->
 
 daemon_info(Pid) ->
     case catch ssh_system_sup:acceptor_supervisor(Pid) of
-	AsupPid when is_pid(AsupPid) ->
-	    [{IP,Port,Profile}] =
-		[{IP,Prt,Prf} 
-                 || {{ssh_acceptor_sup,Hst,Prt,Prf},_Pid,worker,[ssh_acceptor]} 
+        AsupPid when is_pid(AsupPid) ->
+            [{IP,Port,Profile}] =
+                [{IP,Prt,Prf}
+                 || {{ssh_acceptor_sup,Hst,Prt,Prf},_Pid,worker,[ssh_acceptor]}
                         <- supervisor:which_children(AsupPid),
                     IP <- [case inet:parse_strict_address(Hst) of
                                {ok,IP} -> IP;
                                _ -> Hst
                            end]
                 ],
-	    {ok, [{port,Port},
+            {ok, [{port,Port},
                   {ip,IP},
                   {profile,Profile}
                  ]};
-	_ ->
-	    {error,bad_daemon_ref}
+        _ ->
+            {error,bad_daemon_ref}
     end.
 
 %%--------------------------------------------------------------------
@@ -366,11 +367,11 @@ stop_listener(Address, Port) ->
 
 stop_listener(any, Port, Profile) ->
     map_ip(fun(IP) ->
-                   ssh_system_sup:stop_listener(IP, Port, Profile) 
+                   ssh_system_sup:stop_listener(IP, Port, Profile)
            end, [{0,0,0,0},{0,0,0,0,0,0,0,0}]);
 stop_listener(Address, Port, Profile) ->
     map_ip(fun(IP) ->
-                   ssh_system_sup:stop_listener(IP, Port, Profile) 
+                   ssh_system_sup:stop_listener(IP, Port, Profile)
            end, {address,Address}).
 
 %%--------------------------------------------------------------------
@@ -393,11 +394,11 @@ stop_daemon(Address, Port) ->
 
 stop_daemon(any, Port, Profile) ->
     map_ip(fun(IP) ->
-                   ssh_system_sup:stop_system(IP, Port, Profile) 
+                   ssh_system_sup:stop_system(IP, Port, Profile)
            end, [{0,0,0,0},{0,0,0,0,0,0,0,0}]);
 stop_daemon(Address, Port, Profile) ->
     map_ip(fun(IP) ->
-                   ssh_system_sup:stop_system(IP, Port, Profile) 
+                   ssh_system_sup:stop_system(IP, Port, Profile)
            end, {address,Address}).
 
 %%--------------------------------------------------------------------
@@ -434,24 +435,36 @@ shell(Host, Port, Options) ->
 
 start_shell({ok, ConnectionRef}) ->
     case ssh_connection:session_channel(ConnectionRef, infinity) of
-	{ok,ChannelId}  ->
-	    success = ssh_connection:ptty_alloc(ConnectionRef, ChannelId, []),
-	    Args = [{channel_cb, ssh_shell},
-		    {init_args,[ConnectionRef, ChannelId]},
-		    {cm, ConnectionRef}, {channel_id, ChannelId}],
-	    {ok, State} = ssh_client_channel:init([Args]),
+        {ok,ChannelId}  ->
+            success = ssh_connection:ptty_alloc(ConnectionRef, ChannelId, []),
+            Args = [{channel_cb, ssh_shell},
+                    {init_args,[ConnectionRef, ChannelId]},
+                    {cm, ConnectionRef}, {channel_id, ChannelId}],
+            {ok, State} = ssh_client_channel:init([Args]),
             try
                 ssh_client_channel:enter_loop(State)
             catch
                 exit:normal ->
                     ok
             end;
-	Error ->
-	    Error
+        Error ->
+            Error
     end;
 
 start_shell(Error) ->
     Error.
+
+-spec direct_tcpip(ConnectionRef, LocalHost, LocalPort, RemoteHost, RemotePort) -> Result when
+      ConnectionRef :: connection_ref(),
+      LocalHost :: host(),
+      LocalPort :: inet:port_number(),
+      RemoteHost :: host(),
+      RemotePort :: inet:port_number(),
+      Result :: {ok, ip_port()} | {error, any()}.
+direct_tcpip(ConnectionRef, LocalHost, LocalPort, RemoteHost, RemotePort) ->
+    LocalHost1 = list_to_binary(address_to_string(LocalHost, [])),
+    RemoteHost1 = list_to_binary(mangle_connect_address(RemoteHost, [])),
+    ssh_connection_handler:direct_tcpip(ConnectionRef, LocalHost1, LocalPort, RemoteHost1, RemotePort).
 
 %%--------------------------------------------------------------------
 -spec default_algorithms() -> algs_list() .
@@ -597,3 +610,12 @@ mangle_connect_address1(A, _) ->
         {ok, {0,0,0,0,0,0,0,0}} -> loopback(true);
         _ -> A
     end.
+
+address_to_string(A, SockOpts) ->
+    address_to_string1(mangle_connect_address(A, SockOpts)).
+
+address_to_string1(A) when is_tuple(A) ->
+    inet_parse:ntoa(A);
+address_to_string1(A) when is_list(A) ->
+    {ok, _} = inet:getaddr(A, inet),
+    A.

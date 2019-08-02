@@ -48,6 +48,7 @@
 -export([start_connection/4,
          available_hkey_algorithms/2,
          open_channel/6,
+         direct_tcpip/5,
          request/6, request/7,
          reply_request/3,
          send/5,
@@ -119,6 +120,7 @@ stop(ConnectionHandler)->
 %% Internal application API
 %%====================================================================
 
+
 %%--------------------------------------------------------------------
 -spec start_connection(role(),
                        gen_tcp:socket(),
@@ -128,7 +130,9 @@ stop(ConnectionHandler)->
 %% . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
 start_connection(client = Role, Socket, Options, Timeout) ->
     try
-        {ok, Pid} = sshc_sup:start_child([Role, Socket, Options]),
+
+        {ok, SupPid} = sshc_sup:start_child(Role, Socket, Options),
+        {ok, Pid} = sshc_sup:start_connection(SupPid, Role, Socket, Options),
         ok = socket_control(Socket, Pid, Options),
         handshake(Pid, erlang:monitor(process,Pid), Timeout)
     catch
@@ -174,6 +178,12 @@ start_connection(server = Role, Socket, Options, Timeout) ->
 disconnect(Code, DetailedText, Module, Line) ->
     throw({keep_state_and_data,
            [{next_event, internal, {send_disconnect, Code, DetailedText, Module, Line}}]}).
+
+%%--------------------------------------------------------------------
+-spec direct_tcpip(connection_ref(), binary(), inet:port_number(), binary(), inet:port_number()) ->
+                          {ok, ip_port()} | {error, any()}.
+direct_tcpip(ConnectionHandler, LocalHost, LocalPort, RemoteHost, RemotePort) ->
+    call(ConnectionHandler, {direct_tcpip, LocalHost, LocalPort, RemoteHost, RemotePort}).
 
 %%--------------------------------------------------------------------
 -spec open_channel(connection_ref(),
@@ -404,11 +414,16 @@ init([Role,Socket,Opts]) ->
     case inet:peername(Socket) of
         {ok, PeerAddr} ->
             {Protocol, Callback, CloseTag} = ?GET_OPT(transport, Opts),
+            Sups = ?GET_INTERNAL_OPT(supervisors, Opts),
             C = #connection{channel_cache = ssh_client_channel:cache_create(),
                             channel_id_seed = 0,
                             port_bindings = [],
                             requests = [],
-                            options = Opts},
+                            system_supervisor =     proplists:get_value(system_sup,     Sups),
+                            sub_system_supervisor = proplists:get_value(subsystem_sup,  Sups),
+                            options = Opts
+                           },
+
             D0 = #data{starter = ?GET_INTERNAL_OPT(user_pid, Opts),
                        connection_state = C,
                        socket = Socket,
@@ -416,7 +431,7 @@ init([Role,Socket,Opts]) ->
                        transport_cb = Callback,
                        transport_close_tag = CloseTag,
                        ssh_params = init_ssh_record(Role, Socket, PeerAddr, Opts)
-              },
+                      },
             D = case Role of
                     client ->
                         D0;
@@ -425,8 +440,6 @@ init([Role,Socket,Opts]) ->
                         D0#data{connection_state =
                                     C#connection{cli_spec = ?GET_OPT(ssh_cli, Opts, {ssh_cli,[?GET_OPT(shell, Opts)]}),
                                                  exec =     ?GET_OPT(exec,    Opts),
-                                                 system_supervisor =     proplists:get_value(system_sup,     Sups),
-                                                 sub_system_supervisor = proplists:get_value(subsystem_sup,  Sups),
                                                  connection_supervisor = proplists:get_value(connection_sup, Sups)
                                                 }}
                 end,
@@ -1309,7 +1322,12 @@ handle_event({call,From}, {close, ChannelId}, StateName, D0)
             {keep_state_and_data, [{reply,From,ok}]}
     end;
 
-
+handle_event({call,From}, {direct_tcpip, LocalHost, LocalPort, RemoteHost, RemotePort}, StateName,
+            #data{connection_state = Connection})
+  when ?CONNECTED(StateName) ->
+    Role = role(StateName),
+    Reply = ssh_connection:direct_tcpip(Role, LocalHost, LocalPort, RemoteHost, RemotePort, Connection),
+    {keep_state_and_data, [{reply, From, Reply}]};
 %%===== Reception of encrypted bytes, decryption and framing
 handle_event(info, {Proto, Sock, Info}, {hello,_}, #data{socket = Sock,
                                                          transport_protocol = Proto}) ->
@@ -1552,27 +1570,27 @@ handle_event(Type, Ev, StateName, D0) ->
 
 %% . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
 
-terminate(normal, _StateName, D) ->
-    stop_subsystem(D),
+terminate(normal, StateName, D) ->
+    stop_subsystem(role(StateName), D),
     close_transport(D);
 
-terminate({shutdown,"Connection closed"}, _StateName, D) ->
+terminate({shutdown,"Connection closed"}, StateName, D) ->
     %% Normal: terminated by a sent by peer
-    stop_subsystem(D),
+    stop_subsystem(role(StateName), D),
     close_transport(D);
 
 terminate({shutdown,{init,Reason}}, StateName, D) ->
     %% Error in initiation. "This error should not occur".
     log(error, D, io_lib:format("Shutdown in init (StateName=~p): ~p~n",[StateName,Reason])),
-    stop_subsystem(D),
+    stop_subsystem(role(StateName), D),
     close_transport(D);
 
-terminate({shutdown,_R}, _StateName, D) ->
+terminate({shutdown,_R}, StateName, D) ->
     %% Internal termination, usually already reported via ?send_disconnect resulting in a log entry
-    stop_subsystem(D),
+    stop_subsystem(role(StateName), D),
     close_transport(D);
 
-terminate(shutdown, _StateName, D0) ->
+terminate(shutdown, StateName, D0) ->
     %% Terminated by supervisor
     %% Use send_msg directly instead of ?send_disconnect to avoid filling the log
     D = send_msg(#ssh_msg_disconnect{code = ?SSH_DISCONNECT_BY_APPLICATION,
@@ -1580,9 +1598,9 @@ terminate(shutdown, _StateName, D0) ->
                  D0),
     close_transport(D);
 
-terminate(kill, _StateName, D) ->
+terminate(kill, StateName, D) ->
     %% Got a kill signal
-    stop_subsystem(D),
+    stop_subsystem(role(StateName), D),
     close_transport(D);
 
 terminate(Reason, StateName, D0) ->
@@ -1592,7 +1610,7 @@ terminate(Reason, StateName, D0) ->
                                             "Internal error",
                                             io_lib:format("Reason: ~p",[Reason]),
                                             StateName, D0),
-    stop_subsystem(D),
+    stop_subsystem(role(StateName), D),
     close_transport(D).
 
 %%--------------------------------------------------------------------
@@ -1673,12 +1691,15 @@ start_the_connection_child(UserPid, Role, Socket, Options0) ->
 
 %%--------------------------------------------------------------------
 %% Stopping
-
-stop_subsystem(#data{connection_state =
+stop_subsystem(client, #data{connection_state =
+                                 #connection{system_supervisor = SysSup
+                                            , sub_system_supervisor = SubSysSup}}) ->
+    sshc_sup:stop_subsystem(SysSup, SubSysSup);
+stop_subsystem(server, #data{connection_state =
                          #connection{system_supervisor = SysSup,
                                      sub_system_supervisor = SubSysSup}}) when is_pid(SubSysSup) ->
     ssh_system_sup:stop_subsystem(SysSup, SubSysSup);
-stop_subsystem(_) ->
+stop_subsystem(_, _) ->
     ok.
 
 

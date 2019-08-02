@@ -61,7 +61,8 @@
          request_success_msg/1,
 
          bind/4, unbind/3, unbind_channel/2,
-         bound_channel/3, encode_ip/1
+         bound_channel/3, encode_ip/1,
+         direct_tcpip/6
         ]).
 
 -type connection_ref() :: ssh:connection_ref().
@@ -813,6 +814,18 @@ encode_ip(Addr) when is_list(Addr) ->
             end
     end.
 
+-spec direct_tcpip(role(), binary(), inet:port_number(), binary(), inet:port_number(), #connection{}) ->
+                          {ok, ip_port()} | {error, any()}.
+direct_tcpip(server, _LsnHost, _LsnPort, _FwdHost, _FwdPort, _Connection) ->
+    {error, badarg};
+direct_tcpip(Role, LsnHost, LsnPort, FwdHost, FwdPort, Connection) ->
+    case start_forward(Role, LsnHost, LsnPort, FwdHost, FwdPort, Connection) of
+        {ok, _Pid, Port} ->
+            {ok, Port};
+        Error={error, _} ->
+            Error
+end.
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%
 %%% Internal functions
@@ -873,11 +886,16 @@ start_subsystem(BinName, #connection{options = Options,
             {error, legacy_option_not_supported}
     end.
 
-start_forward(Role, Host, Port, #connection{options = Options,
-                                      sub_system_supervisor = SubSysSup}) ->
+start_forward(Role, Host, Port, Connection) ->
+    start_forward(Role, Host, Port, undefined, undefined, Connection).
+
+start_forward(Role, LsnHost, LsnPort, FwdHost, FwdPort,
+              #connection{options = Options, sub_system_supervisor = SubSysSup}) ->
     ForwardSup = ssh_subsystem_sup:forward_supervisor(SubSysSup),
     ChannelSup = ssh_subsystem_sup:channel_supervisor(SubSysSup),
-    ssh_server_forward_sup:start_child(Role, ForwardSup, ChannelSup, Host, Port, Options).
+    ssh_server_forward_sup:start_child(Role, ForwardSup, ChannelSup,
+                                       LsnHost, LsnPort, FwdHost, FwdPort,
+                                       Options).
 
 start_direct_forward(Role, #connection{channel_cache = Cache,
                                        channel_id_seed = NewChannelID,

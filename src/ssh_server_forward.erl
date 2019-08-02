@@ -73,7 +73,7 @@ init({Role, ConnManager, Addr, Port, _OrigAddr, _OrigPort, ChannelId}) ->
              mode = direct
             }};
 %% forwarded-tcpip
-init({Role=server, ConnManager, Addr, Port, ChannelId}) ->
+init({Role, ConnManager, Addr, Port, ChannelId}) ->
     {ok, #st{channel = ChannelId,
              cm = ConnManager,
              address = Addr,
