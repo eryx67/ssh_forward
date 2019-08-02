@@ -38,7 +38,7 @@
             , channel :: ssh:channel_id()
             , cm :: pid()
             , socket :: port() | undefined
-            , data :: binary()
+            , data :: binary() | undefined
             , init_socket :: reference()
          }
        ).
@@ -87,8 +87,10 @@ handle_cast({set_socket, Sock}, St = #st{data = Data}) ->
     ok = inet:setopts(Sock, [{active, once}]),
     {noreply, St#st{socket = Sock, data = undefined}}.
 
-handle_ssh_msg({ssh_cm, _, {data, _ChannelId, _, Data}}, St = #st{socket = undefined}) ->
+handle_ssh_msg({ssh_cm, _, {data, _ChannelId, _, Data}}, St = #st{socket = undefined, data = undefined}) ->
     {ok, St#st{data = Data}};
+handle_ssh_msg({ssh_cm, _, {data, _ChannelId, _, Data}}, St = #st{socket = undefined, data = Acc}) ->
+    {ok, St#st{data = <<Acc/binary, Data/binary>>}};
 handle_ssh_msg({ssh_cm, _, {data, ChannelId, _, Data}}, St = #st{socket = Sock}) ->
     case gen_tcp:send(Sock, Data) of
         ok ->
