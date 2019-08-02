@@ -40,8 +40,9 @@
             , socket :: port() | undefined
             , data :: binary() | undefined
             , init_socket :: reference()
-         }
-       ).
+            , role :: ssh:role()
+            , mode :: direct | forwarded
+            }).
 
 set_socket(Pid, Sock) ->
     gen_server:cast(Pid, {set_socket, Sock}).
@@ -57,7 +58,7 @@ set_socket(Pid, Sock) ->
 %%--------------------------------------------------------------------
 
 %% direct-tcpip
-init({server, ConnManager, Addr, Port, _OrigAddr, _OrigPort, ChannelId}) ->
+init({Role, ConnManager, Addr, Port, _OrigAddr, _OrigPort, ChannelId}) ->
     Self = self(),
     Pid = proc_lib:spawn_opt(fun () -> 
                                      init_socket(Self, binary_to_list(Addr), Port, ?tcp_options) 
@@ -67,18 +68,27 @@ init({server, ConnManager, Addr, Port, _OrigAddr, _OrigPort, ChannelId}) ->
              cm = ConnManager,
              address = Addr,
              port = Port,
-             init_socket = Ref
+             init_socket = Ref,
+             role = Role,
+             mode = direct
             }};
 %% forwarded-tcpip
-init({server, ConnManager, Addr, Port, ChannelId}) ->
+init({Role=server, ConnManager, Addr, Port, ChannelId}) ->
     {ok, #st{channel = ChannelId,
              cm = ConnManager,
              address = Addr,
-             port = Port
+             port = Port,
+             role = Role,
+             mode = forwarded
             }}.
 
-handle_cast({set_socket, Sock}, St = #st{cm = ConnManager, channel = Id, data = Data}) ->
-    ok = ssh_connection_handler:reply_request(ConnManager, open_confirmation, Id),
+handle_cast({set_socket, Sock}, St = #st{cm = ConnManager, channel = Id, data = Data, mode = Mode}) ->
+    case Mode of
+        forwarded ->
+            ok;
+        direct ->
+            ok = ssh_connection_handler:reply_request(ConnManager, open_confirmation, Id)
+    end,
     case Data of
         undefined ->
             ok;

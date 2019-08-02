@@ -37,8 +37,10 @@
             , socket :: port()
             , acceptor :: any()
             , channel_supervisor :: pid()
-            , host :: binary()
-            , port :: non_neg_integer()
+            , listen_host :: binary()
+            , listen_port :: non_neg_integer()
+            , forward_host :: binary()
+            , forward_port :: non_neg_integer()
             , options :: proplists:proplist()
             , pid2id :: #{pid() := ssh:channel_id()}
             , id2pid :: #{ssh:channel_id() := pid()}
@@ -48,16 +50,22 @@
 %%%=========================================================================
 %%%  Internal API
 %%%=========================================================================
--spec start_link(server | client, pid(), binary(), 0..65535, pid(), proplists:proplist()) ->
+-spec start_link(server, pid(), binary(), ssh:ip_port(), pid(), proplists:proplist()) ->
                         {ok, pid(), non_neg_integer()}.
 start_link(Role, ConnectionManager, Host, Port, ChannelSup, Options) ->
-    proc_lib:start_link(?MODULE, init, [{Role, ConnectionManager, Host, Port, ChannelSup, Options}]).
+    start_link(Role, ConnectionManager, Host, Port, undefined, undefined, ChannelSup, Options).
+
+-spec start_link(ssh:role(), pid(), binary(), ssh:ip_port(), binary(), ssh:ip_port(), pid(), proplists:proplist()) ->
+                        {ok, pid(), non_neg_integer()}.
+start_link(Role, ConnectionManager, LsnHost, LsnPort, FwdHost, FwdPort, ChannelSup, Options) ->
+    proc_lib:start_link(?MODULE, init, [{Role, ConnectionManager,
+                                         LsnHost, LsnPort, FwdHost, FwdPort,
+                                         ChannelSup, Options}]).
 
 %%%=========================================================================
 %%%  gen_server callback
 %%%=========================================================================
--spec init({pid(), binary(), 0..65535, pid(), proplists:proplist()}) -> any().
-init({Role, ConnManager, Host, Port, ChannelSup, Options}) ->
+init({Role, ConnManager, Host, Port, FwdHost, FwdPort, ChannelSup, Options}) ->
     LsnOpts =
         case Host of
             <<"0.0.0.0">> ->
@@ -80,8 +88,10 @@ init({Role, ConnManager, Host, Port, ChannelSup, Options}) ->
                     , acceptor = Ref
                     , channel_supervisor = ChannelSup
                     , options = Options
-                    , host = Host
-                    , port = LsnPort
+                    , listen_host = Host
+                    , listen_port = LsnPort
+                    , forward_host = default(FwdHost, Host)
+                    , forward_port = default(FwdPort, LsnPort)
                     , pid2id = #{}
                     , id2pid = #{}
                     , role = Role
@@ -104,7 +114,7 @@ handle_cast(Msg, St) ->
 -spec handle_info(X, #st{}) ->
                          {noreply, #st{}} | {stop, {unknown_info, X}, #st{}}.
 handle_info({inet_async, LsnSock, Ref, {ok, AccSock}},
-            St = #st{socket = LsnSock, acceptor = Ref, host = Host, port = Port}) ->
+            St = #st{socket = LsnSock, acceptor = Ref, forward_host = FwdHost, forward_port = FwdPort}) ->
 
     case set_sockopt(LsnSock, AccSock) of
         ok ->
@@ -117,9 +127,9 @@ handle_info({inet_async, LsnSock, Ref, {ok, AccSock}},
     ClientAddr = list_to_binary(inet_parse:ntoa(ClientIP)),
     ClientAddrLen = byte_size(ClientAddr),
 
-    HostLen = byte_size(Host),
+    FwdHostLen = byte_size(FwdHost),
 
-    Data = <<?DEC_BIN(Host, HostLen), ?UINT32(Port),
+    Data = <<?DEC_BIN(FwdHost, FwdHostLen), ?UINT32(FwdPort),
              ?DEC_BIN(ClientAddr, ClientAddrLen), ?UINT32(ClientPort)
            >>,
 
@@ -168,7 +178,7 @@ code_change(_OldVsn, St, _Extra) -> {ok, St}.
 
 start_channel(Sock, CliAddr, CliPort, Data, St = #st{cm = ConnManager,
                                                      channel_supervisor = ChannelSup,
-                                                     host = Host, port = Port,
+                                                     forward_host = FwdHost, forward_port = FwdPort,
                                                      options = Opts,
                                                      role = Role}) ->
     case max_num_channels_not_exceeded(ChannelSup, Opts) of
@@ -176,7 +186,8 @@ start_channel(Sock, CliAddr, CliPort, Data, St = #st{cm = ConnManager,
             ok = gen_tcp:close(Sock),
             St;
         true ->
-            case ssh_connection_handler:open_channel(ConnManager, "forwarded-tcpip",
+            ChannelType = channel_type(Role),
+            case ssh_connection_handler:open_channel(ConnManager, ChannelType,
                                                      Data,
                                                      ?DEFAULT_WINDOW_SIZE, ?DEFAULT_PACKET_SIZE,
                                                      infinity) of
@@ -192,11 +203,15 @@ start_channel(Sock, CliAddr, CliPort, Data, St = #st{cm = ConnManager,
                     St1 = add_connection(Pid, Id, St),
                     St1;
                 Error ->
-                    logger:error("opening forward cahnnel for ~p:~p ~p", [Host, Port, Error]),
+                    logger:error("opening forwarding channel ~p for ~p:~p ~p",
+                                 [ChannelType, FwdHost, FwdPort, Error]),
                     ok = gen_tcp:close(Sock),
                     St
             end
     end.
+
+channel_type(server) -> "forwarded-tcpip";
+channel_type(client) -> "direct-tcpip".
 
 ssh_cm_channel_id(Data) when is_tuple(Data) ->
     element(2, Data);
@@ -249,3 +264,6 @@ max_num_channels_not_exceeded(ChannelSup, Opts) ->
     NumChannels = length([x || {_,_,worker,[ssh_server_channel]} <-
                                    supervisor:which_children(ChannelSup)]),
     NumChannels < MaxNumChannels.
+
+default(undefined, Default) -> Default;
+default(V, _) -> V.
