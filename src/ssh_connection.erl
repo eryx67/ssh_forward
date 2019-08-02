@@ -904,11 +904,7 @@ start_direct_forward(Role, #connection{channel_cache = Cache,
                  remote_id = RemoteId
                 },
     ssh_client_channel:cache_update(Cache, Channel),
-    OpenConfMsg = channel_open_confirmation_msg(RemoteId, NewChannelID,
-                                                ?DEFAULT_WINDOW_SIZE,
-                                                ?DEFAULT_PACKET_SIZE),
-    Reply = {connection_reply, OpenConfMsg},
-    {[Reply], Connection#connection{channel_id_seed = NextChannelID}}.
+    {[], Connection#connection{channel_id_seed = NextChannelID}}.
 
 %%% Helpers for starting cli/subsystems
 start_channel(Cb, Id, Args, SubSysSup, Opts) ->

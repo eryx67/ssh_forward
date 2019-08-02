@@ -224,7 +224,7 @@ request(ConnectionHandler, ChannelId, Type, false, Data, _) ->
 
 %%--------------------------------------------------------------------
 -spec reply_request(connection_ref(),
-                    success | failure,
+                    success | failure | open_confirmation,
                     channel_id()
                    ) -> ok.
 
@@ -1119,6 +1119,19 @@ handle_event(cast, {adjust_window,ChannelId,Bytes}, StateName, D) when ?CONNECTE
                                                          WinSize + Bytes + Pending,
                                                      recv_window_pending = 0}),
             Msg = ssh_connection:channel_adjust_window_msg(Id, Bytes + Pending),
+            {keep_state, send_msg(Msg,D)};
+
+        undefined ->
+            keep_state_and_data
+    end;
+
+handle_event(cast, {reply_request, open_confirmation, ChannelId}, StateName, D) when ?CONNECTED(StateName) ->
+    case ssh_client_channel:cache_lookup(cache(D), ChannelId) of
+        #channel{remote_id = RemoteId} ->
+            Msg = ssh_connection:channel_open_confirmation_msg(RemoteId, ChannelId,
+                                                               ?DEFAULT_WINDOW_SIZE,
+                                                               ?DEFAULT_PACKET_SIZE),
+            update_inet_buffers(D#data.socket),
             {keep_state, send_msg(Msg,D)};
 
         undefined ->

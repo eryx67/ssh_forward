@@ -77,7 +77,8 @@ init({server, ConnManager, Addr, Port, ChannelId}) ->
              port = Port
             }}.
 
-handle_cast({set_socket, Sock}, St = #st{data = Data}) ->
+handle_cast({set_socket, Sock}, St = #st{cm = ConnManager, channel = Id, data = Data}) ->
+    ok = ssh_connection_handler:reply_request(ConnManager, open_confirmation, Id),
     case Data of
         undefined ->
             ok;
