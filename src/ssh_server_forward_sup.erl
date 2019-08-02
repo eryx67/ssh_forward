@@ -15,7 +15,7 @@
 
 -behaviour(supervisor).
 
--export([start_link/1, start_child/5]).
+-export([start_link/1, start_child/6]).
 
 %% Supervisor callback
 -export([init/1]).
@@ -26,10 +26,10 @@
 start_link(Args) ->
     supervisor:start_link(?MODULE, [Args]).
 
-start_child(Sup, ChannelSup, Host, Port, Options) ->
+start_child(Role, Sup, ChannelSup, Host, Port, Options) ->
     ChildSpec =
         #{id       => {Host, Port},
-          start    => {ssh_server_forward_srv, start_link, [self(), Host, Port, ChannelSup, Options]},
+          start    => {ssh_server_forward_srv, start_link, [Role, self(), Host, Port, ChannelSup, Options]},
           restart  => temporary,
           type     => worker,
           modules  => [ssh_server_forward_srv]

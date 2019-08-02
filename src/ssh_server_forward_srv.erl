@@ -15,7 +15,7 @@
 
 -behaviour(gen_server).
 
--export([start_link/5]).
+-export([start_link/6]).
 
 %% gen_server callback
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -42,21 +42,22 @@
             , options :: proplists:proplist()
             , pid2id :: #{pid() := ssh:channel_id()}
             , id2pid :: #{ssh:channel_id() := pid()}
+            , role :: server | client
             }).
 
 %%%=========================================================================
 %%%  Internal API
 %%%=========================================================================
--spec start_link(pid(), binary(), 0..65535, pid(), proplists:proplist()) ->
+-spec start_link(server | client, pid(), binary(), 0..65535, pid(), proplists:proplist()) ->
                         {ok, pid(), non_neg_integer()}.
-start_link(ConnectionManager, Host, Port, ChannelSup, Options) ->
-    proc_lib:start_link(?MODULE, init, [{ConnectionManager, Host, Port, ChannelSup, Options}]).
+start_link(Role, ConnectionManager, Host, Port, ChannelSup, Options) ->
+    proc_lib:start_link(?MODULE, init, [{Role, ConnectionManager, Host, Port, ChannelSup, Options}]).
 
 %%%=========================================================================
 %%%  gen_server callback
 %%%=========================================================================
 -spec init({pid(), binary(), 0..65535, pid(), proplists:proplist()}) -> any().
-init({ConnManager, Host, Port, ChannelSup, Options}) ->
+init({Role, ConnManager, Host, Port, ChannelSup, Options}) ->
     LsnOpts =
         case Host of
             <<"0.0.0.0">> ->
@@ -83,6 +84,7 @@ init({ConnManager, Host, Port, ChannelSup, Options}) ->
                     , port = LsnPort
                     , pid2id = #{}
                     , id2pid = #{}
+                    , role = Role
                     },
             gen_server:enter_loop(?MODULE, [], St);
         {error, Reason} ->
@@ -139,10 +141,12 @@ handle_info(Msg={ssh_cm, _, Data}, St) ->
             logger:error("can't find channel id for ssh_cm ~p", [Msg]),
             ok;
         Id ->
-            case connection_pid(Id, St) of
-                undefined ->
-                    logger:error("can't find channel pid for id ~p", [Id]);
-                Pid ->
+            case {connection_pid(Id, St), Data} of
+                {undefined, {closed, _}} ->
+                    ok; % channel could stop before we received the message
+                {undefined, _} ->
+                    logger:error("can't find channel pid for id ~p", [Msg]);
+                {Pid, _} ->
                     Pid ! Msg,
                     ok
             end
@@ -162,10 +166,11 @@ code_change(_OldVsn, St, _Extra) -> {ok, St}.
 %% Internal functions
 %% ====================================================================
 
-start_channel(Sock, Addr, Port, Data, St = #st{cm = ConnManager,
-                                               channel_supervisor = ChannelSup,
-                                               host = Host, port = Port,
-                                               options = Opts}) ->
+start_channel(Sock, CliAddr, CliPort, Data, St = #st{cm = ConnManager,
+                                                     channel_supervisor = ChannelSup,
+                                                     host = Host, port = Port,
+                                                     options = Opts,
+                                                     role = Role}) ->
     case max_num_channels_not_exceeded(ChannelSup, Opts) of
         false ->
             ok = gen_tcp:close(Sock),
@@ -176,7 +181,7 @@ start_channel(Sock, Addr, Port, Data, St = #st{cm = ConnManager,
                                                      ?DEFAULT_WINDOW_SIZE, ?DEFAULT_PACKET_SIZE,
                                                      infinity) of
                 {open, Id} ->
-                    Args = {ConnManager, Addr, Port, Id},
+                    Args = {Role, ConnManager, CliAddr, CliPort, Id},
                     {ok, Pid} =
                         ssh_server_channel_sup:start_child(ChannelSup, ConnManager, ssh_server_forward,
                                                            Id, Args, undefined),

@@ -440,7 +440,7 @@ handle_msg(#ssh_msg_channel_open{channel_type = "direct-tcpip",
                                  data = Data
                                 },
            #connection{options = SSHopts} = Connection0,
-           server) ->
+           Role=server) ->
 
     MinAcceptedPackSz = ?GET_OPT(minimal_remote_max_packet_size, SSHopts),
 
@@ -456,7 +456,7 @@ handle_msg(#ssh_msg_channel_open{channel_type = "direct-tcpip",
             <<?UINT32(OL), _/binary>> = Rst,
             <<?DEC_BIN(OrigAddr, OL), ?UINT32(OrigPort)>> = Rst,
 
-            try start_direct_forward(Connection0, RemoteId, WindowSz, PacketSz,
+            try start_direct_forward(Role, Connection0, RemoteId, WindowSz, PacketSz,
                                      Host, Port, OrigAddr, OrigPort) of
                 Result ->
                     Result
@@ -643,10 +643,10 @@ handle_msg(#ssh_msg_global_request{name = _Name,
     end;
 handle_msg(#ssh_msg_global_request{name = <<"tcpip-forward">>,
                                    want_reply = WantReply,
-                                   data = Data = <<?UINT32(HL), _/binary>>}, Connection, server) ->
+                                   data = Data = <<?UINT32(HL), _/binary>>}, Connection, Role=server) ->
     <<?DEC_BIN(Host, HL), ?UINT32(Port)>> = Data,
 
-    Reply = case start_forward(Host, Port, Connection) of
+    Reply = case start_forward(Role, Host, Port, Connection) of
                 {ok, _Pid, Port} ->
                     request_success_msg(<<"">>);
                 {ok, _Pid, BoundPort} ->
@@ -873,22 +873,22 @@ start_subsystem(BinName, #connection{options = Options,
             {error, legacy_option_not_supported}
     end.
 
-start_forward(Host, Port, #connection{options = Options,
+start_forward(Role, Host, Port, #connection{options = Options,
                                       sub_system_supervisor = SubSysSup}) ->
     ForwardSup = ssh_subsystem_sup:forward_supervisor(SubSysSup),
     ChannelSup = ssh_subsystem_sup:channel_supervisor(SubSysSup),
-    ssh_server_forward_sup:start_child(ForwardSup, ChannelSup, Host, Port, Options).
+    ssh_server_forward_sup:start_child(Role, ForwardSup, ChannelSup, Host, Port, Options).
 
-start_direct_forward(#connection{channel_cache = Cache,
-                                 channel_id_seed = NewChannelID,
-                                 options = Options,
-                                 sub_system_supervisor = SubSysSup} = Connection,
+start_direct_forward(Role, #connection{channel_cache = Cache,
+                                       channel_id_seed = NewChannelID,
+                                       options = Options,
+                                       sub_system_supervisor = SubSysSup} = Connection,
                      RemoteId, WindowSize, PacketSize,
                      Host, Port, OrigAddr, OrigPort) ->
     NextChannelID = NewChannelID + 1,
 
 
-    Args = {self(), Host, Port, OrigAddr, OrigPort, NewChannelID},
+    Args = {Role, self(), Host, Port, OrigAddr, OrigPort, NewChannelID},
     {ok, Pid} = start_channel(ssh_server_forward, NewChannelID, Args, SubSysSup, Options),
     erlang:monitor(process, Pid),
     Channel =

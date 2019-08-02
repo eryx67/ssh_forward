@@ -57,7 +57,7 @@ set_socket(Pid, Sock) ->
 %%--------------------------------------------------------------------
 
 %% direct-tcpip
-init({ConnManager, Addr, Port, _OrigAddr, _OrigPort, ChannelId}) ->
+init({server, ConnManager, Addr, Port, _OrigAddr, _OrigPort, ChannelId}) ->
     Self = self(),
     Pid = proc_lib:spawn_opt(fun () -> 
                                      init_socket(Self, binary_to_list(Addr), Port, ?tcp_options) 
@@ -70,7 +70,7 @@ init({ConnManager, Addr, Port, _OrigAddr, _OrigPort, ChannelId}) ->
              init_socket = Ref
             }};
 %% forwarded-tcpip
-init({ConnManager, Addr, Port, ChannelId}) ->
+init({server, ConnManager, Addr, Port, ChannelId}) ->
     {ok, #st{channel = ChannelId,
              cm = ConnManager,
              address = Addr,
