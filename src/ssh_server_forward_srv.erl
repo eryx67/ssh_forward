@@ -38,10 +38,10 @@
             , acceptor :: any()
             , channel_supervisor :: pid()
             , listen_host :: binary()
-            , listen_port ::  ssh:ip_port()
+            , listen_port ::  non_neg_integer()
             , forward_host :: binary()
-            , forward_port ::  ssh:ip_port()
-            , options :: proplists:proplist()
+            , forward_port ::  non_neg_integer()
+            , options :: internal_options()
             , pid2id :: #{pid() := ssh:channel_id()}
             , id2pid :: #{ssh:channel_id() := pid()}
             , role :: server | client
@@ -99,7 +99,7 @@ init({Role, ConnManager, Host, Port, FwdHost, FwdPort, ChannelSup, Options}) ->
             exit(Reason)
     end.
 
--spec handle_call(X, reference(), #st{}) ->
+-spec handle_call(X, {pid(), _}, #st{}) ->
                          {stop, {unknown_request, X}, {unknown_request, X}, #st{}}.
 handle_call(Request, _From, St) ->
   {stop, {unknown_request, Request}, {unknown_request, Request}, St}.
@@ -146,14 +146,14 @@ handle_info({'DOWN', _MR, process, Pid, _Info}, St) ->
 handle_info(Msg={ssh_cm, _, Data}, St) ->
     case ssh_cm_channel_id(Data) of
         undefined ->
-            logger:error("can't find channel id for ssh_cm ~p", [Msg]),
+            logger:debug("can't find channel id for ssh_cm ~p", [Msg]),
             ok;
         Id ->
             case {connection_pid(Id, St), Data} of
                 {undefined, {closed, _}} ->
                     ok; % channel could stop before we received the message
                 {undefined, _} ->
-                    logger:error("can't find channel pid for id ~p", [Msg]);
+                    logger:debug("can't find channel pid for id ~p", [Id]);
                 {Pid, _} ->
                     Pid ! Msg,
                     ok

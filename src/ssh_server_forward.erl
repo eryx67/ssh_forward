@@ -39,7 +39,7 @@
             , cm :: pid()
             , socket :: port() | undefined
             , data :: binary() | undefined
-            , init_socket :: reference()
+            , init_socket :: reference() | undefined
             , role :: ssh:role()
             , mode :: direct | forwarded
             }).
