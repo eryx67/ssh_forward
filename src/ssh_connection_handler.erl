@@ -49,6 +49,7 @@
          available_hkey_algorithms/2,
          open_channel/6,
          direct_tcpip/5,
+         tcpip_forward/6,
          request/6, request/7,
          reply_request/3,
          send/5,
@@ -184,6 +185,11 @@ disconnect(Code, DetailedText, Module, Line) ->
                           {ok, ip_port()} | {error, any()}.
 direct_tcpip(ConnectionHandler, LocalHost, LocalPort, RemoteHost, RemotePort) ->
     call(ConnectionHandler, {direct_tcpip, LocalHost, LocalPort, RemoteHost, RemotePort}).
+
+-spec tcpip_forward(connection_ref(), binary(), inet:port_number(), binary(), inet:port_number(), timeout()) ->
+                           {ok, ip_port()} | {error, any()}.
+tcpip_forward(ConnectionHandler, RemoteHost, RemotePort, LocalHost, LocalPort, Timeout) ->
+    call(ConnectionHandler, {tcpip_forward, RemoteHost, RemotePort, LocalHost, LocalPort, Timeout}).
 
 %%--------------------------------------------------------------------
 -spec open_channel(connection_ref(),
@@ -1328,6 +1334,27 @@ handle_event({call,From}, {direct_tcpip, LocalHost, LocalPort, RemoteHost, Remot
     Role = role(StateName),
     Reply = ssh_connection:direct_tcpip(Role, LocalHost, LocalPort, RemoteHost, RemotePort, Connection),
     {keep_state_and_data, [{reply, From, Reply}]};
+
+handle_event({call,From}, {tcpip_forward, RemoteHost, RemotePort, LocalHost, LocalPort, Timeout},
+             StateName, D = #data{connection_state = #connection{forwarded_tcpips = Forwards}})
+  when ?CONNECTED(StateName) ->
+    Role = role(StateName),
+    case Role of
+        server ->
+            {keep_state_and_data, [{reply, From, {error, badarg}}]};
+        client when is_map_key({RemoteHost, RemotePort}, Forwards) ->
+            {keep_state_and_data, [{reply, From, {error, already_registered}}]};
+        client ->
+            Id = {tcpip_forward, RemoteHost, RemotePort, LocalHost, LocalPort},
+            WantReply = true,
+            RemoteHostLen = byte_size(RemoteHost),
+            Data = <<?DEC_BIN(RemoteHost, RemoteHostLen), ?UINT32(RemotePort)>>,
+            D1 = send_msg(ssh_connection:global_request_msg("tcpip-forward", WantReply, Data), D),
+            D2 = add_request(WantReply, Id, From, D1),
+            start_global_request_timer(Id, From, Timeout),
+            {keep_state, D2, []}
+    end;
+
 %%===== Reception of encrypted bytes, decryption and framing
 handle_event(info, {Proto, Sock, Info}, {hello,_}, #data{socket = Sock,
                                                          transport_protocol = Proto}) ->
@@ -1590,7 +1617,7 @@ terminate({shutdown,_R}, StateName, D) ->
     stop_subsystem(role(StateName), D),
     close_transport(D);
 
-terminate(shutdown, StateName, D0) ->
+terminate(shutdown, _StateName, D0) ->
     %% Terminated by supervisor
     %% Use send_msg directly instead of ?send_disconnect to avoid filling the log
     D = send_msg(#ssh_msg_disconnect{code = ?SSH_DISCONNECT_BY_APPLICATION,
@@ -2189,8 +2216,13 @@ cond_set_idle_timer(D) ->
 %%%----------------------------------------------------------------
 start_channel_request_timer(_,_, infinity) ->
     ok;
-start_channel_request_timer(Channel, From, Time) ->
-    erlang:send_after(Time, self(), {timeout, {Channel, From}}).
+start_channel_request_timer(Req, From, Time) ->
+    erlang:send_after(Time, self(), {timeout, {Req, From}}).
+
+start_global_request_timer(_,_, infinity) ->
+    ok;
+start_global_request_timer(Req, From, Time) ->
+    erlang:send_after(Time, self(), {timeout, {Req, From}}).
 
 %%%----------------------------------------------------------------
 %%% Connection start and initalization helpers

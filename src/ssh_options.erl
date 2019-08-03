@@ -383,12 +383,6 @@ default(server) ->
             class => user_options
            },
 
-      {minimal_remote_max_packet_size, def} =>
-          #{default => 0,
-            chk => fun check_pos_integer/1,
-            class => user_options
-           },
-
       {failfun, def} =>
           #{default => fun(_,_,_) -> void end,
             chk => fun(V) -> check_function3(V) orelse
@@ -698,7 +692,13 @@ default(common) ->
            #{default => true,
              chk => fun erlang:is_boolean/1,
              class => user_options
-            }
+            },
+
+      {minimal_remote_max_packet_size, def} =>
+          #{default => 0,
+            chk => fun check_pos_integer/1,
+            class => user_options
+           }
      }.
 
 
