@@ -2,7 +2,6 @@ ssh_forward
 =====
 
 Fork of OTP `ssh` application with support for port forwarding.
-Work in progress.
 
 Current status:
 
