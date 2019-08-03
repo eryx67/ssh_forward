@@ -700,7 +700,7 @@ handle_msg(#ssh_msg_request_success{data = Data},
                            forwarded_tcpips = maps:put({RemoteHost, AssignedPort}, {LocalHost, LocalPort}, Forwards)}};
 
 handle_msg(#ssh_msg_request_success{data = Data},
-           #connection{requests = [{{}, From} | Rest]} = Connection, _) ->
+           #connection{requests = [{_, From} | Rest]} = Connection, _) ->
     {[{channel_request_reply, From, {success, Data}}],
      Connection#connection{requests = Rest}};
 

@@ -182,12 +182,12 @@ disconnect(Code, DetailedText, Module, Line) ->
 
 %%--------------------------------------------------------------------
 -spec direct_tcpip(connection_ref(), binary(), inet:port_number(), binary(), inet:port_number()) ->
-                          {ok, ip_port()} | {error, any()}.
+                          {ok, inet:port_number()} | {error, any()}.
 direct_tcpip(ConnectionHandler, LocalHost, LocalPort, RemoteHost, RemotePort) ->
     call(ConnectionHandler, {direct_tcpip, LocalHost, LocalPort, RemoteHost, RemotePort}).
 
 -spec tcpip_forward(connection_ref(), binary(), inet:port_number(), binary(), inet:port_number(), timeout()) ->
-                           {ok, ip_port()} | {error, any()}.
+                           {ok, inet:port_number()} | {error, any()}.
 tcpip_forward(ConnectionHandler, RemoteHost, RemotePort, LocalHost, LocalPort, Timeout) ->
     call(ConnectionHandler, {tcpip_forward, RemoteHost, RemotePort, LocalHost, LocalPort, Timeout}).
 
