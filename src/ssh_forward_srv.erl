@@ -1,17 +1,30 @@
-%%%-------------------------------------------------------------------
-%%% @author Vladimir G. Sekissov <eryx67@gmail.com>
-%%% @copyright (C) 2019, Vladimir G. Sekissov
-%%% @doc
-%%% Ssh forward listener.
-%%% @end
-%%% Created : 21 Jul 2019 by Vladimir G. Sekissov <eryx67@gmail.com>
-%%%-------------------------------------------------------------------
+%
+%% %CopyrightBegin%
+%%
+%% Copyright Ericsson AB 2004-2018. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%
+%% %CopyrightEnd%
+%%
+
+%%
 
 %%
 %%----------------------------------------------------------------------
 %% Purpose: Ssh forward listener.
 %%----------------------------------------------------------------------
--module(ssh_server_forward_srv).
+-module(ssh_forward_srv).
 
 -behaviour(gen_server).
 
@@ -192,11 +205,11 @@ start_channel(Sock, CliAddr, CliPort, Data, St = #st{cm = ConnManager,
                 {open, Id} ->
                     Args = {Role, ConnManager, CliAddr, CliPort, Id},
                     {ok, Pid} =
-                        ssh_server_channel_sup:start_child(ChannelSup, ConnManager, ssh_server_forward,
+                        ssh_server_channel_sup:start_child(ChannelSup, ConnManager, ssh_forward,
                                                            Id, Args, undefined),
 
                     ok = gen_tcp:controlling_process(Sock, Pid),
-                    ok = ssh_server_forward:set_socket(Pid, Sock),
+                    ok = ssh_forward:set_socket(Pid, Sock),
                     monitor(process, Pid),
                     St1 = add_connection(Pid, Id, St),
                     St1;

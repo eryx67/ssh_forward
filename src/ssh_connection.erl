@@ -922,7 +922,7 @@ start_forward(Role, LsnHost, LsnPort, FwdHost, FwdPort,
               #connection{options = Options, sub_system_supervisor = SubSysSup}) ->
     ForwardSup = ssh_subsystem_sup:forward_supervisor(SubSysSup),
     ChannelSup = ssh_subsystem_sup:channel_supervisor(SubSysSup),
-    ssh_server_forward_sup:start_child(Role, ForwardSup, ChannelSup,
+    ssh_forward_sup:start_child(Role, ForwardSup, ChannelSup,
                                        LsnHost, LsnPort, FwdHost, FwdPort,
                                        Options).
 
@@ -936,7 +936,7 @@ start_direct_forward(Role, Type, #connection{channel_cache = Cache,
 
 
     Args = {Role, self(), Host, Port, OrigAddr, OrigPort, NewChannelID},
-    {ok, Pid} = start_channel(ssh_server_forward, NewChannelID, Args, SubSysSup, Options),
+    {ok, Pid} = start_channel(ssh_forward, NewChannelID, Args, SubSysSup, Options),
     erlang:monitor(process, Pid),
     Channel =
         #channel{type = Type,

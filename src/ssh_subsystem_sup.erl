@@ -53,7 +53,7 @@ channel_supervisor(SupPid) ->
 
 forward_supervisor(SupPid) ->    
     Children = supervisor:which_children(SupPid),
-    ssh_server_forward_sup(Children).
+    ssh_forward_sup(Children).
 
 %%%=========================================================================
 %%%  Supervisor callback
@@ -92,8 +92,8 @@ ssh_channel_child_spec(Role, Address, Port, _Profile, Options) ->
      }.
 
 ssh_forward_child_spec(Role, Address, Port, _Profile, Options) ->
-    #{id       => id(Role, ssh_server_forward_sup, Address, Port),
-      start    => {ssh_server_forward_sup, start_link, [Options]},
+    #{id       => id(Role, ssh_forward_sup, Address, Port),
+      start    => {ssh_forward_sup, start_link, [Options]},
       restart  => temporary,
       type     => supervisor
      }.
@@ -111,7 +111,7 @@ ssh_server_channel_sup([{_, Child, _, [ssh_server_channel_sup]} | _]) ->
 ssh_server_channel_sup([_ | Rest]) ->
     ssh_server_channel_sup(Rest).
 
-ssh_server_forward_sup([{_, Child, _, [ssh_server_forward_sup]} | _]) ->
+ssh_forward_sup([{_, Child, _, [ssh_forward_sup]} | _]) ->
     Child;
-ssh_server_forward_sup([_ | Rest]) ->
-    ssh_server_forward_sup(Rest).
+ssh_forward_sup([_ | Rest]) ->
+    ssh_forward_sup(Rest).
