@@ -88,7 +88,7 @@ ssh -p 8989  -i /tmp/otptest_user/.ssh/id_rsa -o UserKnownHostsFile=/tmp/otptest
     -L 9999:localhost:9998 localhost
 ```
 
-** Testing **
+**Testing**
 
 ``` bash
 time yes | ncat -v localhost 9999
