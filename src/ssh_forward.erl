@@ -140,7 +140,7 @@ handle_msg({'DOWN', Ref, process, _Pid, normal}, St = #st{init_socket = Ref}) ->
     {ok, St#st{init_socket = undefined}};
 handle_msg({'DOWN', Ref, process, _Pid, Error}, St = #st{init_socket = Ref, channel = Id,
                                                          address = Addr, port = Port}) ->
-    logger:error("failed to open forwarded connection with ~s:~p ~p", [Addr, Port, Error]),
+    error_logger:error_msg("failed to open forwarded connection with ~s:~p ~p", [Addr, Port, Error]),
     {stop, Id, St};
 handle_msg({tcp, Sock, Data}, St = #st{cm = ConnManager, channel = Id, socket = Sock}) ->
     ok = inet:setopts(Sock, [{active, once}]),
