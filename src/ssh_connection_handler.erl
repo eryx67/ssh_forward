@@ -48,8 +48,6 @@
 -export([start_connection/4,
          available_hkey_algorithms/2,
          open_channel/6,
-         direct_tcpip/5,
-         tcpip_forward/6,
          request/6, request/7,
          reply_request/3,
          send/5,
@@ -59,7 +57,9 @@
          channel_info/3,
          adjust_window/3, close/2,
          disconnect/4,
-         get_print_info/1
+         get_print_info/1,
+         direct_tcpip/5,
+         tcpip_forward/6
         ]).
 
 -type connection_ref() :: ssh:connection_ref().
@@ -120,7 +120,6 @@ stop(ConnectionHandler)->
 %%====================================================================
 %% Internal application API
 %%====================================================================
-
 
 %%--------------------------------------------------------------------
 -spec start_connection(role(),
@@ -402,16 +401,24 @@ init_connection_handler(Role, Socket, Opts) ->
                                   D);
 
         {stop, Error} ->
-            Sups = ?GET_INTERNAL_OPT(supervisors, Opts),
-            C = #connection{system_supervisor =     proplists:get_value(system_sup,     Sups),
-                            sub_system_supervisor = proplists:get_value(subsystem_sup,  Sups),
-                            connection_supervisor = proplists:get_value(connection_sup, Sups)
-                           },
+            D = try
+                    %% Only servers have supervisorts defined in Opts
+                    Sups = ?GET_INTERNAL_OPT(supervisors, Opts),
+                    #connection{system_supervisor =     proplists:get_value(system_sup,     Sups),
+                                sub_system_supervisor = proplists:get_value(subsystem_sup,  Sups),
+                                connection_supervisor = proplists:get_value(connection_sup, Sups)
+                               }
+                of
+                    C ->
+                        #data{connection_state=C}
+                catch
+                    _:_ ->
+                        #data{connection_state=#connection{}}
+                end,
             gen_statem:enter_loop(?MODULE,
                                   [],
                                   {init_error,Error},
-                                  #data{connection_state=C,
-                                        socket=Socket})
+                                  D#data{socket=Socket})
     end.
 
 
@@ -437,7 +444,7 @@ init([Role,Socket,Opts]) ->
                        transport_cb = Callback,
                        transport_close_tag = CloseTag,
                        ssh_params = init_ssh_record(Role, Socket, PeerAddr, Opts)
-                      },
+              },
             D = case Role of
                     client ->
                         D0;
@@ -613,7 +620,7 @@ handle_event(_, socket_control, {hello,_}=StateName, D) ->
             {stop, {shutdown,{unexpected_getopts_return, Other}}}
     end;
 
-handle_event(_, {info_line,_Line}, {hello,Role}=StateName, D) ->
+handle_event(_, {info_line,Line}, {hello,Role}=StateName, D) ->
     case Role of
         client ->
             %% The server may send info lines to the client before the version_exchange
@@ -624,9 +631,9 @@ handle_event(_, {info_line,_Line}, {hello,Role}=StateName, D) ->
             %% But the client may NOT send them to the server. Openssh answers with cleartext,
             %% and so do we
             send_bytes("Protocol mismatch.", D),
-            ?call_disconnectfun_and_log_cond("Protocol mismatch.",
-                                             "Protocol mismatch in version exchange. Client sent info lines.",
-                                             StateName, D),
+            Msg = io_lib:format("Protocol mismatch in version exchange. Client sent info lines.~n~s",
+                                [ssh_dbg:hex_dump(Line, 64)]),
+            ?call_disconnectfun_and_log_cond("Protocol mismatch.", Msg, StateName, D),
             {stop, {shutdown,"Protocol mismatch in version exchange. Client sent info lines."}}
     end;
 
@@ -1156,6 +1163,7 @@ handle_event(cast, {reply_request, open_confirmation, ChannelId}, StateName, D) 
         undefined ->
             keep_state_and_data
     end;
+
 
 handle_event(cast, {reply_request,success,ChannelId}, StateName, D) when ?CONNECTED(StateName) ->
     case ssh_client_channel:cache_lookup(cache(D), ChannelId) of
@@ -2014,11 +2022,11 @@ call_disconnectfun_and_log_cond(LogMsg, DetailedText, Module, Line, StateName, D
     case disconnect_fun(LogMsg, D) of
         void ->
             log(info, D,
-                io_lib:format("~s~n"
-                              "State = ~p~n"
-                              "Module = ~p, Line = ~p.~n"
-                              "Details:~n  ~s~n",
-                              [LogMsg, StateName, Module, Line, DetailedText]));
+                "~s~n"
+                "State = ~p~n"
+                "Module = ~p, Line = ~p.~n"
+                "Details:~n  ~s~n",
+                [LogMsg, StateName, Module, Line, DetailedText]);
         _ ->
             ok
     end.
@@ -2082,6 +2090,9 @@ fold_keys(Keys, Fun, Extra) ->
                 end, [], Keys).
 
 %%%----------------------------------------------------------------
+log(Tag, D, Format, Args) ->
+    log(Tag, D, io_lib:format(Format,Args)).
+
 log(Tag, D, Reason) ->
     case atom_to_list(Tag) of                   % Dialyzer-technical reasons...
         "error"   -> do_log(error_msg,   Reason, D);
@@ -2089,36 +2100,50 @@ log(Tag, D, Reason) ->
         "info"    -> do_log(info_msg,    Reason, D)
     end.
 
-do_log(F, Reason, #data{ssh_params = #ssh{role = Role} = S
-                       }) ->
-    VSN =
-        case application:get_key(ssh,vsn) of
-            {ok,Vsn} -> Vsn;
-            undefined -> ""
-        end,
-    PeerVersion =
-        case Role of
-            server -> S#ssh.c_version;
-            client -> S#ssh.s_version
-        end,
-    CryptoInfo =
-        try
-            [{_,_,CI}] = crypto:info_lib(),
-            <<"(",CI/binary,")">>
-        catch
-            _:_ -> ""
-        end,
-    Other =
-         case Role of
-            server -> "Client";
-            client -> "Server"
-        end,
-    error_logger:F("Erlang SSH ~p ~s ~s.~n"
-                   "~s: ~p~n"
-                   "~s~n",
-                   [Role, VSN, CryptoInfo,
-                    Other, PeerVersion,
-                    Reason]).
+
+do_log(F, Reason, #data{ssh_params = S}) ->
+    case S of
+        #ssh{role = Role} when Role==server ;
+                               Role==client ->
+            {PeerRole,PeerVersion} =
+                case Role of
+                    server -> {"Client", S#ssh.c_version};
+                    client -> {"Server", S#ssh.s_version}
+                end,
+            error_logger:F("Erlang SSH ~p ~s ~s.~n"
+                           "~s: ~p~n"
+                           "~s~n",
+                           [Role,
+                            ssh_log_version(), crypto_log_info(),
+                            PeerRole, PeerVersion,
+                            Reason]);
+        _ ->
+            error_logger:F("Erlang SSH ~s ~s.~n"
+                           "~s~n",
+                           [ssh_log_version(), crypto_log_info(),
+                            Reason])
+    end.
+
+crypto_log_info() ->
+    try
+        [{_,_,CI}] = crypto:info_lib(),
+        case crypto:info_fips() of
+            enabled ->
+                <<"(",CI/binary,". FIPS enabled)">>;
+            not_enabled ->
+                <<"(",CI/binary,". FIPS available but not enabled)">>;
+            _ ->
+                <<"(",CI/binary,")">>
+        end
+    catch
+        _:_ -> ""
+    end.
+
+ssh_log_version() ->
+    case application:get_key(ssh,vsn) of
+        {ok,Vsn} -> Vsn;
+        undefined -> ""
+    end.
 
 %%%----------------------------------------------------------------
 not_connected_filter({connection_reply, _Data}) -> true;
@@ -2216,8 +2241,8 @@ cond_set_idle_timer(D) ->
 %%%----------------------------------------------------------------
 start_channel_request_timer(_,_, infinity) ->
     ok;
-start_channel_request_timer(Req, From, Time) ->
-    erlang:send_after(Time, self(), {timeout, {Req, From}}).
+start_channel_request_timer(Channel, From, Time) ->
+    erlang:send_after(Time, self(), {timeout, {Channel, From}}).
 
 start_global_request_timer(_,_, infinity) ->
     ok;

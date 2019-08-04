@@ -371,12 +371,6 @@ default(server) ->
             class => user_options
            },
 
-      {max_channels, def} =>
-          #{default => infinity,
-            chk => fun check_pos_integer/1,
-            class => user_options
-           },
-
       {parallel_login, def} =>
           #{default => false,
             chk => fun erlang:is_boolean/1,
@@ -410,11 +404,6 @@ default(server) ->
 default(client) ->
     (default(common))
         #{
-      {max_channels, def} =>
-          #{default => infinity,
-            chk => fun check_pos_integer/1,
-            class => user_options
-           },
 
       {dsa_pass_phrase, def} =>
           #{default => undefined,
@@ -693,6 +682,12 @@ default(common) ->
              chk => fun erlang:is_boolean/1,
              class => user_options
             },
+
+      {max_channels, def} =>
+          #{default => infinity,
+            chk => fun check_pos_integer/1,
+            class => user_options
+           },
 
       {minimal_remote_max_packet_size, def} =>
           #{default => 0,

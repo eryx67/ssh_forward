@@ -56,12 +56,14 @@
          channel_open_confirmation_msg/4,
          channel_request_msg/4,
          channel_success_msg/1,
-         global_request_msg/3,
+
          request_failure_msg/0,
          request_success_msg/1,
+         global_request_msg/3,
 
          bind/4, unbind/3, unbind_channel/2,
          bound_channel/3, encode_ip/1,
+
          direct_tcpip/6
         ]).
 
