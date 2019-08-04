@@ -3,6 +3,11 @@ ssh_forward
 
 Fork of OTP `ssh` application with support for port forwarding.
 
+Branches:
+
+- **master**, reflects current OTP `master` branch
+- **21.3**, version for OTP 21.3
+
 Current status:
 
 - [x] remote port forwarding, ssh option `-R`
