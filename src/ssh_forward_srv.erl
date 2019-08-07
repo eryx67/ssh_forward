@@ -86,7 +86,7 @@ init({Role, ConnManager, Host, Port, FwdHost, FwdPort, ChannelSup, Options}) ->
             <<"localhost">> ->
                 [{ip, {127, 0, 0, 1}}];
             _ ->
-                {ok, IP} = inet:parse_address(Host),
+                {ok, IP} = inet:parse_address(binary_to_list(Host)),
                 [{ip, IP}]
         end,
     case gen_tcp:listen(Port, LsnOpts ++ ?tcp_options) of
@@ -165,7 +165,8 @@ handle_info(Msg={ssh_cm, _, Data}, St) ->
                 {undefined, {closed, _}} ->
                     ok; % channel could stop before we received the message
                 {undefined, _} ->
-                    error_logger:info_msg("can't find channel pid for id ~p", [Id]);
+                    %% error_logger:info_msg("can't find channel pid for id ~p", [Id]);
+                    ok;
                 {Pid, _} ->
                     Pid ! Msg,
                     ok
