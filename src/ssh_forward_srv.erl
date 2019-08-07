@@ -86,7 +86,7 @@ init({Role, ConnManager, Host, Port, FwdHost, FwdPort, ChannelSup, Options}) ->
             <<"localhost">> ->
                 [{ip, {127, 0, 0, 1}}];
             _ ->
-                {ok, IP} = inet:parse_address(Host),
+                {ok, IP} = inet:parse_address(binary_to_list(Host)),
                 [{ip, IP}]
         end,
     case gen_tcp:listen(Port, LsnOpts ++ ?tcp_options) of
@@ -159,14 +159,14 @@ handle_info({'DOWN', _MR, process, Pid, _Info}, St) ->
 handle_info(Msg={ssh_cm, _, Data}, St) ->
     case ssh_cm_channel_id(Data) of
         undefined ->
-            logger:debug("can't find channel id for ssh_cm ~p", [Msg]),
             ok;
         Id ->
             case {connection_pid(Id, St), Data} of
                 {undefined, {closed, _}} ->
                     ok; % channel could stop before we received the message
                 {undefined, _} ->
-                    logger:debug("can't find channel pid for id ~p", [Id]);
+                    %% error_logger:info_msg("can't find channel pid for id ~p", [Id]);
+                    ok;
                 {Pid, _} ->
                     Pid ! Msg,
                     ok
@@ -214,8 +214,8 @@ start_channel(Sock, CliAddr, CliPort, Data, St = #st{cm = ConnManager,
                     St1 = add_connection(Pid, Id, St),
                     St1;
                 Error ->
-                    logger:error("opening forwarding channel ~p for ~p:~p ~p",
-                                 [ChannelType, FwdHost, FwdPort, Error]),
+                    error_logger:error_msg("opening forwarding channel ~p for ~p:~p ~p",
+                                           [ChannelType, FwdHost, FwdPort, Error]),
                     ok = gen_tcp:close(Sock),
                     St
             end
